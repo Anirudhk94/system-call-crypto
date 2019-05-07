@@ -1,0 +1,109 @@
+INTRODUCTION :
+============
+Encrypting files is very useful and important nowadays, but many OSs do not
+support this feature natively(yet). This project is an attempt to create a 
+new system call that can take an input file, encrypt or decrypt it, and then
+produce an output file.
+
+ 
+DESIGN APPROACHES :
+=================
+1. SELECTING THE KEY
+    - In this implementation, a fixed length (16 bytes) key is used 
+      for encryption and decryption.
+    - This key is selected from keybuf which is SHA1(user_password)
+    - First 16 bytes for this 20 bytes hash is used as the key for
+      [en|de]cryption
+
+	-------------------                     --------
+	[en|de]cryption key = First 16 bytes of  keybuf
+	-------------------                     --------
+	    16 bytes				20 bytes
+
+2. HANDLING FILES THAT ARE NOT MULTIPLE OF CIPHER BLOCK ENCODING SIZE
+    - To handle these cases, AES in CTR mode 
+    - This mode does not require any special measures to handle messages 
+      whose lengths are not multiples of the block size, since this mode
+      works by XORing the plaintext with the output of the block cipher
+
+3. PREAMBLE DETAILS 
+    - The preamble of the encrypted file is of length : 32 bytes
+    - These 32 bytes can be divided into two segment, each of 16 bytes
+	- First 16 bytes :
+	    - This segment contains a hash value (say 'H').
+	    - This is calculated as, H = MD5(keybuf) 
+		where, keybuf = SHA1(user_password)
+	    - The main reason why the SHA1 hash is rehashed using MD5 
+	      is to ensure that the [en|de]cryption key is not publicly 
+	      available. 		
+	 
+	- Last 16 bytes :
+	    - This segment holds the initialization vector (IV).
+	    - This IV is used by AES.
+
+	--------   -------------------   ---------------------
+	preamble = md5(sha1(password)) + initialization vector
+	--------   -------------------   ---------------------
+	32 bytes        16 bytes	       16 bytes
+
+4. IV CALCULATION
+    - The IV is calculated using a combination of inode number of temp file
+      and the page number. 
+    - The inode of the temp file is used here, as opposed to the inode num
+      of infile or outfile, as it adds a level of randomness to IV generation.
+    - This means that for the same file that is encrypted, the IV is not
+      necessarily the same.
+    - This IV so generated is saved in the preamble. These bits are read 
+      at the time of decryption to ensure same IV for [en|de]cryption.
+    - This additionally ensures that no two blocks for a given file have 
+      the same IV, making the encryption more secure from attacks.
+    - Also from a security stance, it is always suggested to have diffent IVs, 
+      even if the passwords are same.
+		 
+	---------------------   -----------   ------------	
+	initialization vector = page number + inode number
+	---------------------   -----------   ------------
+	       16 bytes           8 bytes       8 bytes	
+
+
+5. RESTORING PREVIOUS STATE IN CASE OF FAILURE
+    - To ensure that the state of the fs is maintained in case of failure 
+      (during read-write, [en|de]cryption etc.), a temporary file is used
+    - All the writing is done to this temporary file. On success, this file
+      is renamed to the outfile name given by the user. Alternatively, on
+      failure the previous state of the fs is restored by unlinking the 
+      the temp file.      
+
+6. OTHER DETAILS
+    - Made use of locking for vfs_rename, to handle cases when multiple 
+      threads operate on a single file.
+    - The naming of the temp file is <outfile_name>.tmp .This ensures that 
+      the tmp files are all unique and no inconsistencies arise.
+    - Made use of a macro to check the max length of the file name.
+    - Made use of simple arithmetic to make sure block level read-write 
+      occures. This ensures that the kernel load is independent of the file
+      size. 
+
+
+FUNCTIONAL DESCRIPTION :
+======================
+There are 6 utility functions, each one defined to handle a specific task 
+(mentioned below) inorder to achieve encrytion, decryption and copying 
+based on the input flags.
+						
+	--------------------------------------------------------------
+	  Task					: Function Name
+	--------------------------------------------------------------
+	- Input Validation			: cpenc()
+	- Read-Write Operatio			: file_read_write()
+	- Preamble Handling			: preamble_handler()
+	- IV Initialisation			: init_iv()
+	- Optional Encryption-Decryption	: encrypt_decrypt()
+	- Renaming				: rename()
+	- MD5 evaluation			: get_md5_digest()
+	--------------------------------------------------------------
+
+
+AUTHOR
+======
+Anirudh Kulkarni
