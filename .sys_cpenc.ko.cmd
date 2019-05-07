@@ -1,1 +1,0 @@
-cmd_/root/hw1/CSE-506/sys_cpenc.ko := ld -r -m elf_x86_64  -z max-page-size=0x200000 -T ./scripts/module-common.lds  --build-id  -o /root/hw1/CSE-506/sys_cpenc.ko /root/hw1/CSE-506/sys_cpenc.o /root/hw1/CSE-506/sys_cpenc.mod.o ;  true
